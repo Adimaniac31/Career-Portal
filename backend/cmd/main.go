@@ -3,11 +3,14 @@ package main
 import (
 	"iiitn-career-portal/internal/config"
 	"iiitn-career-portal/internal/database"
+	"iiitn-career-portal/internal/packages/admin"
 	"iiitn-career-portal/internal/packages/auth"
 	"iiitn-career-portal/internal/packages/authorization"
 	"iiitn-career-portal/internal/packages/colleges"
 	"log"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
@@ -16,13 +19,28 @@ func main() {
 	_ = godotenv.Load()
 	cfg := config.Load()
 
-	// 1️⃣ Connect DB
 	db := database.Connect(cfg.DB)
 
-	// 2️⃣ Run migrations
 	database.Migrate(db)
 
 	router := gin.Default()
+
+	router.Use(cors.New(cors.Config{
+		AllowOrigins: []string{
+			"http://localhost:5173",
+		},
+		AllowMethods: []string{
+			"GET", "POST", "PUT", "DELETE", "OPTIONS",
+		},
+		AllowHeaders: []string{
+			"Origin", "Content-Type", "Authorization",
+		},
+		ExposeHeaders: []string{
+			"Content-Length",
+		},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
@@ -31,12 +49,12 @@ func main() {
 	api := router.Group("/api")
 	{
 		auth.RegisterRoutes(api, cfg, db)
+		colleges.RegisterRoutes(api, db)
 		protected := api.Group("/")
 		protected.Use(authorization.RequireAuth(cfg))
 		{
-			colleges.RegisterRoutes(protected, db)
+			admin.RegisterRoutes(api, db)
 		}
-		// colleges.RegisterRoutes(api, db)
 	}
 
 	log.Println("Server running on port:", cfg.Port)

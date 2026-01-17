@@ -1,0 +1,301 @@
+1. GORM MODEL DESIGN (CANONICAL)
+1.1 Base model (do this once)
+type BaseModel struct {
+	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+
+Why:
+
+UUIDs are safer for public APIs
+
+No ID leakage
+
+Easier sharding later
+
+1.2 User & College
+type College struct {
+	BaseModel
+	Name            string   `gorm:"uniqueIndex;not null"`
+	AllowedDomains  pq.StringArray `gorm:"type:text[]"`
+}
+
+type User struct {
+	BaseModel
+	Name        string
+	Email       string `gorm:"uniqueIndex;not null"`
+	Role        string `gorm:"index"`
+	CollegeID   uuid.UUID
+	LinkedinURL string
+
+	College College
+}
+
+
+Important
+
+Role is a string (ADMIN, STUDENT, COLLEGE_ADMIN)
+
+RBAC is enforced via Casbin, not GORM hooks
+
+1.3 Jobs
+type Job struct {
+	BaseModel
+	CollegeID       uuid.UUID `gorm:"index"`
+	Company         string    `gorm:"index"`
+	Role            string
+	JobType         string
+	BatchEligible   pq.Int64Array `gorm:"type:int[]"`
+	Stipend         int
+	CTC             *int
+	OnCampus        bool
+	RegistrationURL string
+	Rounds          string
+	Description     string
+
+	College College
+}
+
+1.4 Applications (CRITICAL)
+type Application struct {
+	BaseModel
+	UserID uuid.UUID `gorm:"uniqueIndex:uniq_user_job"`
+	JobID  uuid.UUID `gorm:"uniqueIndex:uniq_user_job"`
+	Status string    `gorm:"index"`
+
+	User User
+	Job  Job
+}
+
+Why composite unique index?
+
+Prevents double-apply at DB level
+
+Makes apply API idempotent
+
+This is non-negotiable
+
+1.5 Experiences & Comments
+type Experience struct {
+	BaseModel
+	UserID  uuid.UUID `gorm:"index"`
+	Company string    `gorm:"index"`
+	Content string
+
+	User User
+}
+
+type Comment struct {
+	BaseModel
+	ExperienceID uuid.UUID `gorm:"index"`
+	UserID       uuid.UUID `gorm:"index"`
+	ParentID     *uuid.UUID
+	Content      string
+
+	User User
+}
+
+
+Flat + ParentID = mobile-friendly threads.
+
+1.6 Notifications
+type Notification struct {
+	BaseModel
+	UserID  uuid.UUID `gorm:"index"`
+	Type    string
+	Payload json.RawMessage
+	Read    bool
+}
+
+1.7 Files (Resume)
+type File struct {
+	BaseModel
+	UserID    uuid.UUID `gorm:"index"`
+	Type      string
+	ObjectKey string
+}
+
+2. TRANSACTION PATTERNS (THIS IS THE REAL VALUE)
+2.1 Golden rule with GORM
+
+Any request that modifies more than one thing must use a transaction.
+
+No exceptions.
+
+2.2 Apply for Job (correct pattern)
+What can go wrong if done wrong
+
+Duplicate applications
+
+Notification sent but DB failed
+
+Partial writes
+
+Correct pattern
+err := db.Transaction(func(tx *gorm.DB) error {
+	var app Application
+
+	err := tx.
+		Where("user_id = ? AND job_id = ?", userID, jobID).
+		First(&app).Error
+
+	if err == nil {
+		return ErrAlreadyApplied
+	}
+
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	app = Application{
+		UserID: userID,
+		JobID:  jobID,
+		Status: "APPLIED",
+	}
+
+	if err := tx.Create(&app).Error; err != nil {
+		return err
+	}
+
+	// Emit domain event (OUTSIDE tx commit)
+	return nil
+})
+
+Why event emission is outside DB commit
+
+DB commit must succeed first
+
+Notifications are side effects
+
+Side effects = async
+
+2.3 Bulk Status Update (College Admin)
+
+This is where most juniors mess up.
+
+WRONG approach
+
+Loop over rows
+
+Update one-by-one
+
+Send notifications inline
+
+CORRECT approach
+err := db.Transaction(func(tx *gorm.DB) error {
+	result := tx.
+		Model(&Application{}).
+		Where("job_id = ? AND status = ?", jobID, fromStatus).
+		Update("status", toStatus)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrNoRowsUpdated
+	}
+
+	// Audit log insert here (same tx)
+	return nil
+})
+
+
+Then:
+
+Push one bulk event to queue
+
+Worker fan-outs notifications
+
+2.4 Create Experience + Cache Invalidation
+err := db.Transaction(func(tx *gorm.DB) error {
+	if err := tx.Create(&exp).Error; err != nil {
+		return err
+	}
+	return nil
+})
+
+// After commit
+cache.Delete("company_experiences:" + exp.Company)
+
+
+Never invalidate cache inside transaction.
+
+2.5 Notification Creation (Worker side)
+
+Workers must be idempotent.
+
+tx := db.Begin()
+
+if err := tx.Create(&notification).Error; err != nil {
+	tx.Rollback()
+	return err
+}
+
+tx.Commit()
+
+
+Workers should:
+
+Retry safely
+
+Not duplicate notifications
+
+3. STATE MACHINE (ENFORCEMENT STRATEGY)
+
+Do not encode state rules in GORM hooks.
+
+Instead:
+
+var allowedTransitions = map[string][]string{
+	"APPLIED":     {"SHORTLISTED", "REJECTED"},
+	"SHORTLISTED": {"OFFERED", "REJECTED"},
+}
+
+
+Validate before transaction.
+
+4. GORM PITFALLS YOU MUST AVOID
+❌ AutoMigrate in prod
+
+Use it only early. Later:
+
+Versioned migrations
+
+❌ GORM hooks for business logic
+
+Hard to debug, invisible flows.
+
+❌ Preload everywhere
+
+Kills performance.
+
+❌ Using Save
+
+Use Create / Updates explicitly.
+
+5. Folder structure (clean)
+/internal
+  /models
+  /repositories
+  /services
+  /handlers
+  /workers
+
+
+Handlers → Services → Repositories
+Never DB access in handlers.
+
+6. What to implement NEXT (order matters)
+
+Application state machine
+
+Repository interfaces
+
+First transaction (apply job)
+
+Bulk update flow
+
+Async notification worker
