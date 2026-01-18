@@ -14,11 +14,6 @@ type User struct {
 	College   College
 	Role      string `gorm:"type:varchar(20);default:'student'" json:"-"`
 
-	ResumePath string
-	Batch      int
-
-	LinkedinID string `gorm:"type:text"`
-
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

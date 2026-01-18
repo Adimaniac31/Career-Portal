@@ -13,6 +13,8 @@ type Job struct {
 
 	Title string `gorm:"not null"`
 
+	Company string `gorm:"not null"`
+
 	JobType JobType   `gorm:"type:varchar(20);not null"`
 	Domain  JobDomain `gorm:"type:varchar(20);not null"`
 

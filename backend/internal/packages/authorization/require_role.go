@@ -17,7 +17,14 @@ func RequireRole(allowedRoles ...string) gin.HandlerFunc {
 			return
 		}
 
-		user := authCtx.(AuthContext)
+		user, ok := authCtx.(*AuthContext) // ✅ POINTER ASSERT
+		if !ok {
+			c.AbortWithStatusJSON(
+				http.StatusUnauthorized,
+				gin.H{"error": "invalid auth context"},
+			)
+			return
+		}
 
 		for _, role := range allowedRoles {
 			if user.Role == role {

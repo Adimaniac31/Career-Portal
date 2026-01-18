@@ -12,7 +12,6 @@ func RequireAuth(cfg config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1️⃣ Read cookie
 		tokenStr, err := c.Cookie("portal_token")
-		// log.Println(tokenStr)
 		if err != nil {
 			c.AbortWithStatusJSON(
 				http.StatusUnauthorized,
@@ -31,29 +30,40 @@ func RequireAuth(cfg config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// 3️⃣ Extract claims safely
+		// 3️⃣ Extract user_id
 		userIDFloat, ok := claims["user_id"].(float64)
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			c.AbortWithStatusJSON(
+				http.StatusUnauthorized,
+				gin.H{"error": "invalid token"},
+			)
 			return
 		}
 
-		role, _ := claims["role"].(string)
+		// 4️⃣ Extract role (STRICT)
+		role, ok := claims["role"].(string)
+		if !ok || role == "" {
+			c.AbortWithStatusJSON(
+				http.StatusUnauthorized,
+				gin.H{"error": "invalid role"},
+			)
+			return
+		}
 
+		// 5️⃣ Extract college_id (SAFE)
 		var collegeID *uint
-		if cid, exists := claims["college_id"]; exists && cid != nil {
-			val := uint(cid.(float64))
+		if cid, ok := claims["college_id"].(float64); ok {
+			val := uint(cid)
 			collegeID = &val
 		}
 
-		// 4️⃣ Attach auth context
-		c.Set("auth", AuthContext{
+		// 6️⃣ Attach auth context (POINTER)
+		c.Set("auth", &AuthContext{
 			UserID:    uint(userIDFloat),
 			Role:      role,
 			CollegeID: collegeID,
 		})
 
-		// 5️⃣ Continue
 		c.Next()
 	}
 }

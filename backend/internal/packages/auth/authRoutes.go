@@ -16,6 +16,5 @@ func RegisterRoutes(rg *gin.RouterGroup, cfg config.Config, db *gorm.DB) {
 		auth.GET("/sso/login", SSOLogin(cfg))
 		auth.GET("/sso/callback", SSOCallback(db, cfg))
 		auth.GET("/me", Me(db, cfg))
-
 	}
 }

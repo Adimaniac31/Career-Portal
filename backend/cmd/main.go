@@ -1,12 +1,15 @@
 package main
 
 import (
+	"iiitn-career-portal/internal/cache"
 	"iiitn-career-portal/internal/config"
 	"iiitn-career-portal/internal/database"
 	"iiitn-career-portal/internal/packages/admin"
 	"iiitn-career-portal/internal/packages/auth"
 	"iiitn-career-portal/internal/packages/authorization"
 	"iiitn-career-portal/internal/packages/colleges"
+	"iiitn-career-portal/internal/packages/jobs"
+	"iiitn-career-portal/internal/packages/profile"
 	"log"
 	"time"
 
@@ -22,6 +25,7 @@ func main() {
 	db := database.Connect(cfg.DB)
 
 	database.Migrate(db)
+	redisClient := cache.NewRedisClient(cfg.Redis)
 
 	router := gin.Default()
 
@@ -53,7 +57,9 @@ func main() {
 		protected := api.Group("/")
 		protected.Use(authorization.RequireAuth(cfg))
 		{
-			admin.RegisterRoutes(api, db)
+			admin.RegisterRoutes(protected, db)
+			profile.RegisterRoutes(protected, db, cfg)
+			jobs.RegisterRoutes(protected, db, redisClient)
 		}
 	}
 
