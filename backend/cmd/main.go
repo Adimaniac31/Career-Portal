@@ -5,6 +5,7 @@ import (
 	"iiitn-career-portal/internal/config"
 	"iiitn-career-portal/internal/database"
 	"iiitn-career-portal/internal/packages/admin"
+	"iiitn-career-portal/internal/packages/applications"
 	"iiitn-career-portal/internal/packages/auth"
 	"iiitn-career-portal/internal/packages/authorization"
 	"iiitn-career-portal/internal/packages/colleges"
@@ -60,6 +61,7 @@ func main() {
 			admin.RegisterRoutes(protected, db)
 			profile.RegisterRoutes(protected, db, cfg)
 			jobs.RegisterRoutes(protected, db, redisClient)
+			applications.RegisterRoutes(protected, db, redisClient)
 		}
 	}
 

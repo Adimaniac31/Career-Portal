@@ -1,10 +1,16 @@
 package profile
 
 import (
+	"context"
+	"fmt"
+	"iiitn-career-portal/internal/config"
 	"iiitn-career-portal/internal/models"
 	"iiitn-career-portal/internal/packages/authorization"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"gorm.io/gorm"
 )
 
@@ -149,5 +155,120 @@ func UpdateProfile(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(200, gin.H{"message": "profile updated"})
+	}
+}
+
+func uploadResume(db *gorm.DB, cfg config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		auth := c.MustGet("auth").(*authorization.AuthContext)
+
+		file, err := c.FormFile("resume")
+		if err != nil {
+			c.JSON(400, gin.H{"error": "resume file required"})
+			return
+		}
+
+		// size limit: 2MB
+		if file.Size > 2*1024*1024 {
+			c.JSON(400, gin.H{"error": "resume too large"})
+			return
+		}
+
+		f, err := file.Open()
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed to open file"})
+			return
+		}
+		defer f.Close()
+
+		// detect MIME
+		header := make([]byte, 512)
+		_, _ = f.Read(header)
+		contentType := http.DetectContentType(header)
+
+		if contentType != "application/pdf" {
+			c.JSON(400, gin.H{"error": "only PDF resumes allowed"})
+			return
+		}
+
+		_, _ = f.Seek(0, 0)
+
+		// virus scan hook
+		if err := scanForVirus(f); err != nil {
+			c.JSON(400, gin.H{"error": "virus detected"})
+			return
+		}
+
+		_, _ = f.Seek(0, 0)
+
+		// MinIO client
+		minioClient, err := minio.New(cfg.MinioEndpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(cfg.MinioAccessKey, cfg.MinioSecretKey, ""),
+			Secure: cfg.MinioUseSSL,
+		})
+		if err != nil {
+			c.JSON(500, gin.H{"error": "storage unavailable"})
+			return
+		}
+
+		objectPath := fmt.Sprintf(
+			"resumes/%d/%d/resume.pdf",
+			*auth.CollegeID,
+			auth.UserID,
+		)
+
+		// upload (overwrite-safe)
+		_, err = minioClient.PutObject(
+			context.Background(),
+			cfg.MinioBucket,
+			objectPath,
+			f,
+			file.Size,
+			minio.PutObjectOptions{
+				ContentType: "application/pdf",
+			},
+		)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "upload failed"})
+			return
+		}
+
+		resumeURL := fmt.Sprintf(
+			"%s/%s/%s",
+			cfg.MinioPublicURL,
+			cfg.MinioBucket,
+			objectPath,
+		)
+
+		// DB transaction
+		tx := db.Begin()
+
+		if err := tx.Model(&models.StudentProfile{}).
+			Where("user_id = ?", auth.UserID).
+			Updates(map[string]interface{}{
+				"resume_url":       resumeURL,
+				"profile_complete": true,
+			}).Error; err != nil {
+
+			tx.Rollback()
+
+			// cleanup MinIO on DB failure
+			_ = minioClient.RemoveObject(
+				context.Background(),
+				cfg.MinioBucket,
+				objectPath,
+				minio.RemoveObjectOptions{},
+			)
+
+			c.JSON(500, gin.H{"error": "failed to save resume"})
+			return
+		}
+
+		tx.Commit()
+
+		c.JSON(200, gin.H{
+			"message":    "resume uploaded successfully",
+			"resume_url": resumeURL,
+		})
 	}
 }

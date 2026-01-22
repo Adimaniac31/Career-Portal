@@ -1,6 +1,9 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 // Role of this struct = only runtime settings container
 type Config struct {
@@ -9,8 +12,14 @@ type Config struct {
 
 	JWTSecret string
 
-	Redis string
-	Minio string
+	Redis          string
+	Minio          string
+	MinioEndpoint  string
+	MinioAccessKey string
+	MinioSecretKey string
+	MinioBucket    string
+	MinioUseSSL    bool
+	MinioPublicURL string
 
 	BaseURL      string
 	Realm        string
@@ -28,14 +37,22 @@ func Load() Config {
 		port = "3000"
 	}
 
+	minioUseSSL, _ := strconv.ParseBool(os.Getenv("MINIO_USE_SSL"))
+
 	return Config{
 		Port: port,
 		DB:   os.Getenv("DATABASE_URL"),
 
 		JWTSecret: os.Getenv("JWT_SECRET"),
 
-		Redis: os.Getenv("REDIS_URL"),
-		Minio: os.Getenv("MINIO_URL"),
+		Redis:          os.Getenv("REDIS_URL"),
+		Minio:          os.Getenv("MINIO_URL"),
+		MinioEndpoint:  os.Getenv("MINIO_ENDPOINT"),
+		MinioAccessKey: os.Getenv("MINIO_ACCESS_KEY"),
+		MinioBucket:    os.Getenv("MINIO_BUCKET"),
+		MinioSecretKey: os.Getenv("MINIO_SECRET_KEY"),
+		MinioPublicURL: os.Getenv("MINIO_PUBLIC_URL"),
+		MinioUseSSL:    minioUseSSL,
 
 		BaseURL:      os.Getenv("KEYCLOAK_BASE_URL"),
 		Realm:        os.Getenv("KEYCLOAK_REALM"),

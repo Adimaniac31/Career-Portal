@@ -29,11 +29,11 @@ const (
 )
 
 const (
-	AppApplied     ApplicationStatus = "APPLIED"
-	AppShortlisted ApplicationStatus = "SHORTLISTED"
-	AppInterview   ApplicationStatus = "INTERVIEW"
-	AppOffered     ApplicationStatus = "OFFERED"
-	AppRejected    ApplicationStatus = "REJECTED"
+	Applied     ApplicationStatus = "APPLIED"
+	Shortlisted ApplicationStatus = "SHORTLISTED"
+	Interview   ApplicationStatus = "INTERVIEW"
+	Offered     ApplicationStatus = "OFFERED"
+	Rejected    ApplicationStatus = "REJECTED"
 )
 
 const (

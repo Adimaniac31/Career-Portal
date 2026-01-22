@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iiitn-career-portal/internal/models"
 	"iiitn-career-portal/internal/packages/authorization"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,24 @@ func CreateJob(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(400, gin.H{"error": "ctc or stipend required"})
 			return
 		}
+
+		if req.RegistrationFormURL == nil {
+			c.JSON(400, gin.H{"error": "registration_form_url is required"})
+			return
+		}
+
+		url := strings.TrimSpace(*req.RegistrationFormURL)
+		if url == "" {
+			c.JSON(400, gin.H{"error": "registration_form_url cannot be empty"})
+			return
+		}
+
+		if !isValidURL(url) {
+			c.JSON(400, gin.H{"error": "registration_form_url must be a valid URL"})
+			return
+		}
+
+		req.RegistrationFormURL = &url
 
 		batchesJSON, err := json.Marshal(req.EligibleBatches)
 		if err != nil {
@@ -299,10 +318,10 @@ func ApplyJobIntent(db *gorm.DB, rdb *redis.Client) gin.HandlerFunc {
 			return
 		}
 
-		if !profile.ProfileComplete {
-			c.JSON(400, gin.H{"error": "complete profile before applying"})
-			return
-		}
+		// if !profile.ProfileComplete {
+		// 	c.JSON(400, gin.H{"error": "complete profile before applying"})
+		// 	return
+		// }
 
 		if !containsInt(batches, profile.Batch) {
 			c.JSON(400, gin.H{"error": "you are not eligible for this job"})
@@ -345,21 +364,173 @@ func ApplyJobIntent(db *gorm.DB, rdb *redis.Client) gin.HandlerFunc {
 
 		// DB notification
 		_ = db.Create(&models.Notification{
-			UserID:  auth.UserID,
-			Type:    models.NotificationJobApplyIntent,
-			Payload: payload,
+			UserID:   auth.UserID,
+			Type:     models.NotificationJobApplyIntent,
+			TargetID: intent.ID,
+			Payload:  payload,
 		}).Error
+
+		redisNotif, _ := json.Marshal(gin.H{
+			"type":       models.NotificationJobApplyIntent,
+			"target_id":  intent.ID,
+			"payload":    json.RawMessage(payload),
+			"is_read":    false,
+			"created_at": time.Now(),
+		})
 
 		// Redis push
 		rdb.LPush(
 			context.Background(),
 			fmt.Sprintf("notifications:user:%d", auth.UserID),
-			payload,
+			redisNotif,
 		)
 
 		c.JSON(200, gin.H{
 			"redirect_url": job.RegistrationFormURL,
 			"message":      "complete application and confirm",
+		})
+	}
+}
+
+func UpdateJob(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		jobID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "invalid job id",
+			})
+			return
+		}
+
+		var job models.Job
+		if err := db.First(&job, jobID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "job not found",
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "database error",
+			})
+			return
+		}
+
+		role := models.Role(c.GetString("role"))
+		collegeID := c.GetUint("college_id")
+
+		if !canMutateJob(role, job, collegeID) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "access denied",
+			})
+			return
+		}
+
+		var req UpdateJobRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		updates := map[string]interface{}{}
+
+		if req.Title != nil {
+			updates["title"] = *req.Title
+		}
+		if req.JobType != nil {
+			updates["job_type"] = *req.JobType
+		}
+		if req.Domain != nil {
+			updates["domain"] = *req.Domain
+		}
+		if req.EligibleBatches != nil {
+			updates["eligible_batches"] = *req.EligibleBatches
+		}
+		if req.CTC != nil {
+			updates["ctc"] = req.CTC
+		}
+		if req.Stipend != nil {
+			updates["stipend"] = req.Stipend
+		}
+		if req.RegistrationFormURL != nil {
+			updates["registration_form_url"] = req.RegistrationFormURL
+		}
+		if req.Description != nil {
+			updates["description"] = *req.Description
+		}
+		if req.IsActive != nil {
+			updates["is_active"] = *req.IsActive
+		}
+
+		if len(updates) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "no fields to update",
+			})
+			return
+		}
+
+		if err := db.Model(&job).Updates(updates).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "failed to update job",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "job updated successfully",
+		})
+	}
+}
+
+func DeleteJob(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+		jobID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "invalid job id",
+			})
+			return
+		}
+
+		var job models.Job
+		if err := db.First(&job, jobID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "job not found",
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "database error",
+			})
+			return
+		}
+
+		role := models.Role(c.GetString("role"))
+		collegeID := c.GetUint("college_id")
+
+		if !canMutateJob(role, job, collegeID) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "access denied",
+			})
+			return
+		}
+
+		if err := db.Model(&job).
+			Update("is_active", false).Error; err != nil {
+
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "failed to delete job",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "job deleted successfully",
 		})
 	}
 }

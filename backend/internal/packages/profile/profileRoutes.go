@@ -15,5 +15,6 @@ func RegisterRoutes(rg *gin.RouterGroup, db *gorm.DB, cfg config.Config) {
 	{
 		profile.GET("", GetProfile(db))
 		profile.PATCH("", UpdateProfile(db))
+		profile.POST("/resume", uploadResume(db, cfg))
 	}
 }

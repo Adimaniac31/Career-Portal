@@ -3,6 +3,8 @@ package jobs
 import (
 	"iiitn-career-portal/internal/models"
 	"time"
+
+	"gorm.io/datatypes"
 )
 
 type CreateJobRequest struct {
@@ -14,7 +16,7 @@ type CreateJobRequest struct {
 	CTC                 *float64         `json:"ctc"`
 	Stipend             *float64         `json:"stipend"`
 	Description         string           `json:"description"`
-	RegistrationFormURL *string          `json:"registration_form_url"`
+	RegistrationFormURL *string          `json:"registration_form_url" binding:"required"`
 }
 
 type JobListItem struct {
@@ -41,4 +43,20 @@ type JobDetailResponse struct {
 	Description         string    `json:"description"`
 	RegistrationFormURL *string   `json:"registration_form_url"`
 	CreatedAt           time.Time `json:"created_at"`
+}
+
+type UpdateJobRequest struct {
+	Title   *string           `json:"title"`
+	JobType *models.JobType   `json:"job_type"`
+	Domain  *models.JobDomain `json:"domain"`
+
+	EligibleBatches *datatypes.JSON `json:"eligible_batches"`
+
+	CTC     *float64 `json:"ctc"`
+	Stipend *float64 `json:"stipend"`
+
+	RegistrationFormURL *string `json:"registration_form_url"`
+	Description         *string `json:"description"`
+
+	IsActive *bool `json:"is_active"`
 }

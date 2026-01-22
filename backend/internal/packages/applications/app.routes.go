@@ -16,5 +16,26 @@ func RegisterRoutes(rg *gin.RouterGroup, db *gorm.DB, redisClient *redis.Client)
 		authorization.RequireRole(string(models.Student)),
 		ConfirmApplication(db, redisClient),
 	)
+	applications.PATCH(
+		"/status/bulk",
+		authorization.RequireRole(string(models.CollegeAdmin)),
+		BulkUpdateApplicationStatus(db, redisClient),
+	)
+	applications.GET(
+		"",
+		authorization.RequireRole(
+			string(models.Student),
+			string(models.CollegeAdmin),
+		),
+		ListApplications(db),
+	)
+	applications.GET(
+		"/:id",
+		authorization.RequireRole(
+			string(models.Student),
+			string(models.CollegeAdmin),
+		),
+		GetApplicationByID(db),
+	)
 
 }

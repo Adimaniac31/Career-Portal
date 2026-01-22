@@ -11,7 +11,8 @@ type Notification struct {
 
 	UserID uint `gorm:"index;not null"`
 
-	Type NotificationType `gorm:"type:varchar(50);not null"`
+	Type     NotificationType `gorm:"type:varchar(50);not null"`
+	TargetID uint             `gorm:"not null;index"`
 
 	Payload datatypes.JSON `gorm:"not null"`
 

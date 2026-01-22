@@ -17,6 +17,7 @@ func Migrate(db *gorm.DB) {
 		&models.Application{},
 		&models.Notification{},
 		&models.ApplicationIntent{},
+		&models.Application{},
 	)
 	if err != nil {
 		log.Fatal("migration failed:", err)

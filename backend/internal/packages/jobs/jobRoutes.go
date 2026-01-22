@@ -22,6 +22,20 @@ func RegisterRoutes(rg *gin.RouterGroup, db *gorm.DB, rc *redis.Client) {
 			authorization.RequireRole(string(models.CollegeAdmin)),
 			CreateJob(db),
 		)
+		jobs.PATCH(
+			"/:id",
+			authorization.RequireRole(
+				string(models.CollegeAdmin),
+			),
+			UpdateJob(db),
+		)
+		jobs.DELETE(
+			"/:id",
+			authorization.RequireRole(
+				string(models.CollegeAdmin),
+			),
+			DeleteJob(db),
+		)
 
 		// Student only
 		jobs.POST(
